@@ -96,3 +96,10 @@
 /config.ini
 /**/*.rdi
 .DS_Store
+
+# PSP release zip (attached to GitHub release instead)
+/dist/Client3-PSP.zip
+
+# local PSP test artifacts
+/client3-launcher.prx
+/installed-EBOOT-check.PBP
