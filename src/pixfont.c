@@ -9,6 +9,9 @@
 #include "pix2d.h"
 #include "pixfont.h"
 #include "platform.h"
+#ifdef __PSP__
+#include "thirdparty/stb_truetype.h"
+#endif
 
 // NOTE swapped £ for A, doesn't fit in C char
 const char CHARSET[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!\"A$%^&*()-_=+[{]};:'@#~,<.>/?\\| ";
@@ -41,6 +44,99 @@ PixFont *pixfont_new(void) {
     return pixfont;
 }
 
+#ifdef __PSP__
+static PixFont *pixfont_from_psp_ttf(const char *font_name) {
+    const char *filename = "rom/Roboto/Roboto-Regular.ttf";
+    int base_size = 12;
+    if (strcmp(font_name, "b12") == 0) {
+        filename = "rom/Roboto/Roboto-Bold.ttf";
+    } else if (strcmp(font_name, "q8") == 0) {
+        filename = "rom/Roboto/Roboto-Italic.ttf";
+        base_size = 8;
+    } else if (strcmp(font_name, "p11") == 0) {
+        base_size = 11;
+    }
+
+    FILE *file = fopen(filename, "rb");
+    if (!file) {
+        return NULL;
+    }
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    if (file_size <= 0) {
+        fclose(file);
+        return NULL;
+    }
+
+    unsigned char *font_data = malloc((size_t)file_size);
+    if (!font_data || fread(font_data, 1, (size_t)file_size, file) != (size_t)file_size) {
+        free(font_data);
+        fclose(file);
+        return NULL;
+    }
+    fclose(file);
+
+    stbtt_fontinfo font = {0};
+    int font_offset = stbtt_GetFontOffsetForIndex(font_data, 0);
+    if (font_offset < 0 || !stbtt_InitFont(&font, font_data, font_offset)) {
+        free(font_data);
+        return NULL;
+    }
+
+    float scale_x = stbtt_ScaleForPixelHeight(&font, (float)base_size * 1.5f);
+    float scale_y = stbtt_ScaleForPixelHeight(&font, (float)base_size * 2.0f);
+    int ascent, descent, line_gap;
+    stbtt_GetFontVMetrics(&font, &ascent, &descent, &line_gap);
+    (void)descent;
+    (void)line_gap;
+
+    PixFont *pixfont = pixfont_new();
+    pixfont->antialiased = true;
+    pixfont->height = (int)(ascent * scale_y + 0.5f);
+    for (int i = 0; i < 94; i++) {
+        int codepoint = (unsigned char)CHARSET[i];
+        int glyph_width = 0, glyph_height = 0, x_offset = 0, y_offset = 0;
+        unsigned char *bitmap = stbtt_GetCodepointBitmap(&font, scale_x, scale_y, codepoint,
+                                                          &glyph_width, &glyph_height,
+                                                          &x_offset, &y_offset);
+        int advance, left_side_bearing;
+        stbtt_GetCodepointHMetrics(&font, codepoint, &advance, &left_side_bearing);
+        pixfont->charMaskWidth[i] = glyph_width;
+        pixfont->charMaskHeight[i] = glyph_height;
+        pixfont->charOffsetX[i] = x_offset;
+        pixfont->charOffsetY[i] = pixfont->height + y_offset;
+        pixfont->charAdvance[i] = (int)(advance * scale_x + 0.5f);
+        if (pixfont->charAdvance[i] < 1) {
+            pixfont->charAdvance[i] = 1;
+        }
+
+        size_t mask_size = (size_t)(glyph_width > 0 ? glyph_width : 1) *
+                           (size_t)(glyph_height > 0 ? glyph_height : 1);
+        pixfont->charMask[i] = calloc(mask_size, sizeof(int8_t));
+        if (pixfont->charMask[i] && bitmap && glyph_width > 0 && glyph_height > 0) {
+            for (int p = 0; p < glyph_width * glyph_height; p++) {
+                pixfont->charMask[i][p] = (int8_t)bitmap[p];
+            }
+        }
+        if (bitmap) {
+            stbtt_FreeBitmap(bitmap, NULL);
+        }
+        if (!pixfont->charMask[i]) {
+            pixfont_free(pixfont);
+            free(font_data);
+            return NULL;
+        }
+    }
+    pixfont->charAdvance[94] = pixfont->charAdvance[8];
+    for (int c = 0; c < 256; c++) {
+        pixfont->drawWidth[c] = pixfont->charAdvance[CHARCODESET[c]];
+    }
+    free(font_data);
+    return pixfont;
+}
+#endif
+
 void pixfont_free(PixFont *pixfont) {
     for (int i = 0; i < 94; i++) {
         free(pixfont->charMask[i]);
@@ -57,6 +153,12 @@ void pixfont_free(PixFont *pixfont) {
 }
 
 PixFont *pixfont_from_archive(Jagfile *title, const char *font) {
+#ifdef __PSP__
+    PixFont *psp_font = pixfont_from_psp_ttf(font);
+    if (psp_font) {
+        return psp_font;
+    }
+#endif
     size_t name_length = strlen(font) + 5;
     char *filename = malloc(name_length);
     snprintf(filename, name_length, "%s.dat", font);
@@ -122,6 +224,34 @@ PixFont *pixfont_from_archive(Jagfile *title, const char *font) {
     }
 
     pixfont->charAdvance[94] = pixfont->charAdvance[8];
+#ifdef __PSP__
+    // The PSP scales the 789x532 client canvas down to 480x272. Enlarge the
+    // bitmap fonts first so their final on-screen size remains readable.
+    for (int i = 0; i < 94; i++) {
+        int old_w = pixfont->charMaskWidth[i];
+        int old_h = pixfont->charMaskHeight[i];
+        int new_w = (old_w * 3 + 1) / 2;
+        int new_h = old_h * 2;
+        if (old_w > 0 && old_h > 0) {
+            int8_t *scaled = malloc(new_w * new_h);
+            for (int y = 0; y < new_h; y++) {
+                int src_y = y * old_h / new_h;
+                for (int x = 0; x < new_w; x++) {
+                    int src_x = x * old_w / new_w;
+                    scaled[x + y * new_w] = pixfont->charMask[i][src_x + src_y * old_w];
+                }
+            }
+            free(pixfont->charMask[i]);
+            pixfont->charMask[i] = scaled;
+        }
+        pixfont->charMaskWidth[i] = new_w;
+        pixfont->charMaskHeight[i] = new_h;
+        pixfont->charOffsetX[i] = (pixfont->charOffsetX[i] * 3 + 1) / 2;
+        pixfont->charOffsetY[i] *= 2;
+        pixfont->charAdvance[i] = (pixfont->charAdvance[i] * 3 + 1) / 2;
+    }
+    pixfont->height *= 2;
+#endif
     for (int c = 0; c < 256; c++) {
         pixfont->drawWidth[c] = pixfont->charAdvance[CHARCODESET[c]];
     }
@@ -158,6 +288,28 @@ int stringWidth(PixFont *pixfont, const char *str) {
     return size;
 }
 
+static void drawCharSmooth(int8_t *data, int x, int y, int w, int h, int rgb, int opacity);
+
+static void drawPixFontChar(PixFont *pixfont, int x, int y, int c, int rgb) {
+    if (pixfont->antialiased) {
+        drawCharSmooth(pixfont->charMask[c], x, y, pixfont->charMaskWidth[c],
+                       pixfont->charMaskHeight[c], rgb, 255);
+    } else {
+        drawChar(pixfont->charMask[c], x, y, pixfont->charMaskWidth[c],
+                 pixfont->charMaskHeight[c], rgb);
+    }
+}
+
+static void drawPixFontCharAlpha(PixFont *pixfont, int x, int y, int c, int rgb, int alpha) {
+    if (pixfont->antialiased) {
+        drawCharSmooth(pixfont->charMask[c], x, y, pixfont->charMaskWidth[c],
+                       pixfont->charMaskHeight[c], rgb, alpha);
+    } else {
+        drawCharAlpha(x, y, pixfont->charMaskWidth[c], pixfont->charMaskHeight[c],
+                      rgb, alpha, pixfont->charMask[c]);
+    }
+}
+
 void drawString(PixFont *pixfont, int x, int y, const char *str, int rgb) {
     if (!str) {
         return;
@@ -169,7 +321,7 @@ void drawString(PixFont *pixfont, int x, int y, const char *str, int rgb) {
     for (size_t i = 0; i < len; i++) {
         int c = CHARCODESET[(unsigned char)str[i]];
         if (c != 94) {
-            drawChar(pixfont->charMask[c], x + pixfont->charOffsetX[c], offY + pixfont->charOffsetY[c], pixfont->charMaskWidth[c], pixfont->charMaskHeight[c], rgb);
+            drawPixFontChar(pixfont, x + pixfont->charOffsetX[c], offY + pixfont->charOffsetY[c], c, rgb);
         }
 
         x += pixfont->charAdvance[c];
@@ -197,7 +349,7 @@ void drawCenteredWave(PixFont *pixfont, int x, int y, const char *str, int rgb, 
         int c = CHARCODESET[(unsigned char)str[i]];
 
         if (c != 94) {
-            drawChar(pixfont->charMask[c], x + pixfont->charOffsetX[c], offY + pixfont->charOffsetY[c] + (int)(SIN((DOUBLE)i / 2.0 + (DOUBLE)phase / 5.0) * 5.0), pixfont->charMaskWidth[c], pixfont->charMaskHeight[c], rgb);
+            drawPixFontChar(pixfont, x + pixfont->charOffsetX[c], offY + pixfont->charOffsetY[c] + (int)(SIN((DOUBLE)i / 2.0 + (DOUBLE)phase / 5.0) * 5.0), c, rgb);
         }
 
         x += pixfont->charAdvance[c];
@@ -222,10 +374,10 @@ void drawStringTaggable(PixFont *pixfont, int x, int y, const char *str, int rgb
             int c = CHARCODESET[(unsigned char)str[i]];
             if (c != 94) {
                 if (shadowed) {
-                    drawChar(pixfont->charMask[c], x + pixfont->charOffsetX[c] + 1, offY + pixfont->charOffsetY[c] + 1, pixfont->charMaskWidth[c], pixfont->charMaskHeight[c], 0);
+                    drawPixFontChar(pixfont, x + pixfont->charOffsetX[c] + 1, offY + pixfont->charOffsetY[c] + 1, c, 0);
                 }
 
-                drawChar(pixfont->charMask[c], x + pixfont->charOffsetX[c], offY + pixfont->charOffsetY[c], pixfont->charMaskWidth[c], pixfont->charMaskHeight[c], rgb);
+                drawPixFontChar(pixfont, x + pixfont->charOffsetX[c], offY + pixfont->charOffsetY[c], c, rgb);
             }
 
             x += pixfont->charAdvance[c];
@@ -255,10 +407,10 @@ void drawStringTooltip(PixFont *pixfont, int x, int y, const char *str, int colo
             int c = CHARCODESET[(unsigned char)str[i]];
             if (c != 94) {
                 if (shadowed) {
-                    drawCharAlpha(x + pixfont->charOffsetX[c] + 1, offY + pixfont->charOffsetY[c] + 1, pixfont->charMaskWidth[c], pixfont->charMaskHeight[c], 0, 192, pixfont->charMask[c]);
+                    drawPixFontCharAlpha(pixfont, x + pixfont->charOffsetX[c] + 1, offY + pixfont->charOffsetY[c] + 1, c, 0, 192);
                 }
 
-                drawCharAlpha(x + pixfont->charOffsetX[c], offY + pixfont->charOffsetY[c], pixfont->charMaskWidth[c], pixfont->charMaskHeight[c], color, random, pixfont->charMask[c]);
+                drawPixFontCharAlpha(pixfont, x + pixfont->charOffsetX[c], offY + pixfont->charOffsetY[c], c, color, random);
             }
 
             x += pixfont->charAdvance[c];
@@ -432,6 +584,43 @@ void drawCharAlpha(int x, int y, int w, int h, int rgb, int alpha, int8_t *mask)
 
     if (w > 0 && h > 0) {
         drawMaskAlpha(w, h, _Pix2D.pixels, dstOff, dstStep, mask, srcOff, srcStep, rgb, alpha);
+    }
+}
+
+static void drawCharSmooth(int8_t *data, int x, int y, int w, int h, int rgb, int opacity) {
+    if (!data || w <= 0 || h <= 0 || opacity <= 0) {
+        return;
+    }
+
+    int left = x < _Pix2D.left ? _Pix2D.left : x;
+    int top = y < _Pix2D.top ? _Pix2D.top : y;
+    int right = x + w > _Pix2D.right ? _Pix2D.right : x + w;
+    int bottom = y + h > _Pix2D.bottom ? _Pix2D.bottom : y + h;
+    if (left >= right || top >= bottom) {
+        return;
+    }
+
+    int red = (rgb >> 16) & 0xff;
+    int green = (rgb >> 8) & 0xff;
+    int blue = rgb & 0xff;
+    for (int py = top; py < bottom; py++) {
+        int src_row = (py - y) * w;
+        int dst_row = py * _Pix2D.width;
+        for (int px = left; px < right; px++) {
+            int coverage = ((unsigned char)data[src_row + px - x] * opacity + 127) / 255;
+            if (coverage == 0) {
+                continue;
+            }
+            int inverse = 255 - coverage;
+            int *pixel = &_Pix2D.pixels[dst_row + px];
+            int old = *pixel;
+            int old_red = (old >> 16) & 0xff;
+            int old_green = (old >> 8) & 0xff;
+            int old_blue = old & 0xff;
+            *pixel = (((red * coverage + old_red * inverse + 127) / 255) << 16) |
+                     (((green * coverage + old_green * inverse + 127) / 255) << 8) |
+                     ((blue * coverage + old_blue * inverse + 127) / 255);
+        }
     }
 }
 

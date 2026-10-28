@@ -1,7 +1,7 @@
 TARGET = client
 SRC := $(shell find src -type f -name '*.c')
 OBJS = $(patsubst %.c, %.o, $(SRC))
-LIBS = -lpsppower
+LIBS = -lpsppower -lpspgu -lpspge
 
 INCDIR =
 CFLAGS = -Wno-parentheses -Wall -Dclient -DWITH_RSA_LIBTOM

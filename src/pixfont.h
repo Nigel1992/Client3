@@ -19,6 +19,7 @@ typedef struct {
     int *charAdvance;
     int *drawWidth;
     int height;
+    bool antialiased;
 } PixFont;
 
 PixFont *pixfont_new(void);

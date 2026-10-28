@@ -32,15 +32,17 @@ PSP_MODULE_INFO("client", 0, 2, 225);
 PSP_MAIN_THREAD_ATTR(PSP_THREAD_ATTR_USER);
 
 #define VRAM_STRIDE 512
-#define INITIAL_X_OFFSET (SCREEN_FB_WIDTH - SCREEN_WIDTH) / 2
-#define INITIAL_Y_OFFSET (SCREEN_FB_HEIGHT - SCREEN_HEIGHT) / 2
+#define INITIAL_X_OFFSET 0
+#define INITIAL_Y_OFFSET 0
 
 static uint32_t *fb = (uint32_t *)0x04000000; // vram start
 static SceCtrlData pad, last_pad;
-static int cursor_x = SCREEN_FB_WIDTH / 2;
-static int cursor_y = SCREEN_FB_HEIGHT / 2;
+static int cursor_x = SCREEN_WIDTH / 2;
+static int cursor_y = SCREEN_HEIGHT / 2;
 static int screen_offset_x = INITIAL_X_OFFSET;
 static int screen_offset_y = INITIAL_Y_OFFSET;
+static int16_t screen_x_to_logical[SCREEN_FB_WIDTH];
+static int16_t screen_y_to_logical[SCREEN_FB_HEIGHT];
 
 #define CURSOR_W 12
 #define CURSOR_H 18
@@ -155,6 +157,12 @@ bool platform_init(void) {
 
 void platform_new(GameShell *shell) {
     (void)shell;
+    for (int x = 0; x < SCREEN_FB_WIDTH; x++) {
+        screen_x_to_logical[x] = (int16_t)(((int64_t)(2 * x + 1) * SCREEN_WIDTH) / (2 * SCREEN_FB_WIDTH));
+    }
+    for (int y = 0; y < SCREEN_FB_HEIGHT; y++) {
+        screen_y_to_logical[y] = (int16_t)(((int64_t)(2 * y + 1) * SCREEN_HEIGHT) / (2 * SCREEN_FB_HEIGHT));
+    }
     sceDisplaySetFrameBuf(fb, VRAM_STRIDE, PSP_DISPLAY_PIXEL_FORMAT_8888, PSP_DISPLAY_SETBUF_NEXTFRAME);
     sceCtrlSetSamplingCycle(0);
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
@@ -236,9 +244,8 @@ void platform_poll_events(Client *c) {
     }
 
     if (pad.Buttons & PSP_CTRL_LTRIGGER) {
-        // viewport start
-        screen_offset_x = -8;
-        screen_offset_y = -11;
+        screen_offset_x = 0;
+        screen_offset_y = 0;
         c->redraw_background = true;
     }
 
@@ -246,15 +253,11 @@ void platform_poll_events(Client *c) {
         c->redraw_background = true;
 
 #define CURSOR_SENSITIVITY 20
-        // TODO allow changing cursor sensitivity, don't move cursor while panning
-        if (pad.Buttons & PSP_CTRL_RTRIGGER) {
-            screen_offset_x = MAX(SCREEN_FB_WIDTH - SCREEN_WIDTH, MIN(screen_offset_x - (pad.Lx - 128) / CURSOR_SENSITIVITY, 0));
-            screen_offset_y = MAX(SCREEN_FB_HEIGHT - SCREEN_HEIGHT, MIN(screen_offset_y - (pad.Ly - 128) / CURSOR_SENSITIVITY, 0));
-            // c->redraw_background = true;
-        }
-
-        cursor_x = MAX(0, MIN(cursor_x + (pad.Lx - 128) / CURSOR_SENSITIVITY, SCREEN_WIDTH - 1));
-        cursor_y = MAX(0, MIN(cursor_y + (pad.Ly - 128) / CURSOR_SENSITIVITY, SCREEN_HEIGHT - 1));
+        // The complete client canvas is scaled to the PSP screen, so viewport
+        // panning is unnecessary. Holding R moves the pointer faster.
+        int sensitivity = (pad.Buttons & PSP_CTRL_RTRIGGER) ? 10 : CURSOR_SENSITIVITY;
+        cursor_x = MAX(0, MIN(cursor_x + (pad.Lx - 128) / sensitivity, SCREEN_WIDTH - 1));
+        cursor_y = MAX(0, MIN(cursor_y + (pad.Ly - 128) / sensitivity, SCREEN_HEIGHT - 1));
 
         int x = cursor_x;
         int y = cursor_y;
@@ -307,31 +310,46 @@ void platform_poll_events(Client *c) {
     last_pad = pad;
 }
 void platform_blit_surface(Surface *surface, int x, int y) {
-    int relative_x = cursor_x + screen_offset_x;
-    int relative_y = cursor_y + screen_offset_y;
+    int logical_x0 = x + screen_offset_x;
+    int logical_y0 = y + screen_offset_y;
+    int logical_x1 = logical_x0 + surface->w;
+    int logical_y1 = logical_y0 + surface->h;
+    int dst_x0 = (int)((int64_t)logical_x0 * SCREEN_FB_WIDTH / SCREEN_WIDTH) - 1;
+    int dst_y0 = (int)((int64_t)logical_y0 * SCREEN_FB_HEIGHT / SCREEN_HEIGHT) - 1;
+    int dst_x1 = (int)(((int64_t)logical_x1 * SCREEN_FB_WIDTH + SCREEN_WIDTH - 1) / SCREEN_WIDTH) + 1;
+    int dst_y1 = (int)(((int64_t)logical_y1 * SCREEN_FB_HEIGHT + SCREEN_HEIGHT - 1) / SCREEN_HEIGHT) + 1;
 
-    uint32_t *fb_ptr = fb + (y * VRAM_STRIDE + x);
-    for (int row = 0; row < surface->h; row++) {
-        int screen_y = y + row + screen_offset_y;
-        if (screen_y < 0)
+    if (dst_x0 < 0)
+        dst_x0 = 0;
+    if (dst_y0 < 0)
+        dst_y0 = 0;
+    if (dst_x1 > SCREEN_FB_WIDTH)
+        dst_x1 = SCREEN_FB_WIDTH;
+    if (dst_y1 > SCREEN_FB_HEIGHT)
+        dst_y1 = SCREEN_FB_HEIGHT;
+
+    int screen_cursor_x = cursor_x * SCREEN_FB_WIDTH / SCREEN_WIDTH;
+    int screen_cursor_y = cursor_y * SCREEN_FB_HEIGHT / SCREEN_HEIGHT;
+    int screen_cursor_w = MAX(1, CURSOR_W * SCREEN_FB_WIDTH / SCREEN_WIDTH);
+    int screen_cursor_h = MAX(1, CURSOR_H * SCREEN_FB_HEIGHT / SCREEN_HEIGHT);
+
+    for (int screen_y = dst_y0; screen_y < dst_y1; screen_y++) {
+        int virtual_y = screen_y_to_logical[screen_y] - screen_offset_y;
+        int row = virtual_y - y;
+        if (row < 0 || row >= surface->h)
             continue;
-        if (screen_y >= SCREEN_FB_HEIGHT)
-            break;
-        for (int col = 0; col < surface->w; col++) {
-            int screen_x = x + col + screen_offset_x;
-            if (screen_x < 0)
+
+        for (int screen_x = dst_x0; screen_x < dst_x1; screen_x++) {
+            int virtual_x = screen_x_to_logical[screen_x] - screen_offset_x;
+            int col = virtual_x - x;
+            if (col < 0 || col >= surface->w)
                 continue;
-            if (screen_x >= SCREEN_FB_WIDTH)
-                break;
 
-            int src_offset = row * surface->w + col;
+            int pixel = surface->pixels[row * surface->w + col];
 
-            int pixel = surface->pixels[src_offset];
-
-            // draw cursor in here + redraw_background in poll_events
-            int cx = screen_x - relative_x;
-            int cy = screen_y - relative_y;
-            if (cx >= 0 && cy >= 0 && cx < CURSOR_W && cy < CURSOR_H) {
+            int cx = (screen_x - screen_cursor_x) * CURSOR_W / screen_cursor_w;
+            int cy = (screen_y - screen_cursor_y) * CURSOR_H / screen_cursor_h;
+            if (screen_x >= screen_cursor_x && screen_y >= screen_cursor_y && cx < CURSOR_W && cy < CURSOR_H) {
                 int i = (cy * CURSOR_W + cx) * 4;
                 uint8_t a = cursor[i + 3];
                 if (a > 0) {
@@ -343,7 +361,7 @@ void platform_blit_surface(Surface *surface, int x, int y) {
             }
 
             pixel = ((pixel & 0xff0000) >> 16) | (pixel & 0x00ff00) | ((pixel & 0x0000ff) << 16);
-            fb_ptr[(row + screen_offset_y) * VRAM_STRIDE + (col + screen_offset_x)] = pixel;
+            fb[screen_y * VRAM_STRIDE + screen_x] = pixel;
         }
     }
     // sceDisplayWaitVblankStart();

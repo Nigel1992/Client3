@@ -312,3 +312,52 @@ Using prebuilt SDL but removed tests, SDL1 mingw dotfiles + SDL1 tcc fixes in VC
 * [v86](https://github.com/copy/v86.git) | https://copy.sh/v86/
 * [wasmlite](https://github.com/lesleyrs/wasmlite)
 * [w64devkit](https://github.com/skeeto/w64devkit)
+
+
+## PSP Release (Ready to Use)
+
+This repository is configured for PSP builds with stability improvements.
+
+### Quick install (PSP Memory Stick)
+1. Copy `dist/Client3-PSP/` to `PSP/GAME/Client3-PSP/` on your Memory Stick.
+2. Edit `PSP/GAME/Client3-PSP/config.ini` (and `rom/config.ini`) and set `socketip` to your server's LAN IP.
+3. Run from the XMB under Games.
+
+### Building for PSP
+Requirements: [PSPSDK](https://github.com/pspdev/pspsdk) with `psp-config` in PATH.
+
+```bash
+make -f psp.mk clean
+make -f psp.mk -j$(nproc)
+```
+
+The build produces `EBOOT.PBP`. Copy it along with `rom/`, `config.ini`, and runtime files to your PSP.
+
+### PSP Configuration
+Key options in `config.ini`:
+- `socketip` - IP of your LostCity/Server (same network as PSP)
+- `http_port` - Server HTTP port (default `8888`)
+- `lowmem = 1` - Recommended for stability on PSP
+- `render_distance` - Scene radius (8-25). Lower = better performance
+- `render_scale` - `2` = half-res scene (more stable), `1` = full res
+- `render_gu` - `1` = use PSP GU for 3D triangles (faster), `0` = software only
+- `show_performance = 1` - Toggle perf overlay with Select
+
+### Controls
+| Button | Action |
+| --- | --- |
+| Analog nub | Move cursor |
+| D-pad | Arrow keys |
+| Circle | Left click |
+| Cross | Right click |
+| Triangle | Control key |
+| Square | Login with username/password from config |
+| Select | Toggle performance overlay |
+| L trigger | Reset view |
+| R trigger + nub | Move cursor faster |
+| HOME | Exit |
+
+### Notes
+- PSP-2000 or newer recommended. PSP-3000 is the intended target.
+- Audio is stubbed on PSP.
+- Keep your PSP and server on the same Wi-Fi/LAN network.

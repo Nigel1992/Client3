@@ -88,6 +88,22 @@ static stbtt_fontinfo font;
 static bool font_bold = false;
 static int font_size = false;
 
+static float platform_font_scale_x(void) {
+    int size = font_size;
+#ifdef __PSP__
+    size = (size * 3 + 1) / 2;
+#endif
+    return stbtt_ScaleForPixelHeight(&font, size);
+}
+
+static float platform_font_scale_y(void) {
+    int size = font_size;
+#ifdef __PSP__
+    size *= 2;
+#endif
+    return stbtt_ScaleForPixelHeight(&font, size);
+}
+
 void platform_free_font(void) {
     free(font.data);
     font.data = NULL;
@@ -172,7 +188,7 @@ void platform_set_font(const char *name, bool bold, int size) {
 }
 
 int platform_string_width(const char *str) {
-    float scale = stbtt_ScaleForPixelHeight(&font, font_size);
+    float scale = platform_font_scale_x();
     float xpos = 0.0f;
     for (int ch = 0; str[ch]; ++ch) {
         int advance;
@@ -185,13 +201,14 @@ int platform_string_width(const char *str) {
 }
 
 void platform_draw_string(const char *str, int x, int y) {
-    float scale = stbtt_ScaleForPixelHeight(&font, font_size);
+    float scale_x = platform_font_scale_x();
+    float scale_y = platform_font_scale_y();
     int ascent, descent, line_gap;
     stbtt_GetFontVMetrics(&font, &ascent, &descent, &line_gap);
-    int baseline = ascent * scale;
+    int baseline = ascent * scale_y;
 
     int width = platform_string_width(str);
-    int height = (ascent - descent) * scale;
+    int height = (ascent - descent) * scale_y;
     int *pixels = calloc(width * height, sizeof(int));
     Surface *surface = platform_create_surface(pixels, width, height, true);
 
@@ -205,7 +222,7 @@ void platform_draw_string(const char *str, int x, int y) {
         float x_shift = xpos - floorf(xpos);
 
         stbtt_GetCodepointHMetrics(&font, str[ch], &advance, &lsb);
-        unsigned char *bitmap = stbtt_GetCodepointBitmapSubpixel(&font, scale, scale, x_shift, 0, str[ch], &glyph_w, &glyph_h, &x0, &y0);
+        unsigned char *bitmap = stbtt_GetCodepointBitmapSubpixel(&font, scale_x, scale_y, x_shift, 0, str[ch], &glyph_w, &glyph_h, &x0, &y0);
 
         for (int gy = 0; gy < glyph_h; ++gy) {
             for (int gx = 0; gx < glyph_w; ++gx) {
@@ -227,9 +244,9 @@ void platform_draw_string(const char *str, int x, int y) {
 
         stbtt_FreeBitmap(bitmap, NULL);
 
-        xpos += advance * scale;
+        xpos += advance * scale_x;
         if (str[ch + 1])
-            xpos += scale * stbtt_GetCodepointKernAdvance(&font, str[ch], str[ch + 1]);
+            xpos += scale_x * stbtt_GetCodepointKernAdvance(&font, str[ch], str[ch + 1]);
     }
 
     platform_blit_surface(surface, x, y - height);

@@ -38,6 +38,7 @@
 #include "../pix8.h"
 #include "../pixmap.h"
 #include "../platform.h"
+#include "../platform/pspgu_renderer.h"
 #include "../playerentity.h"
 #include "../projectileentity.h"
 #include "../protocol.h"
@@ -182,7 +183,7 @@ void client_load(Client *c) {
             c->archive_checksum[1] = 784449929;
             c->archive_checksum[2] = -1494598746;
             c->archive_checksum[3] = 1614084464;
-            c->archive_checksum[4] = 855958935;
+            c->archive_checksum[4] = -782603233;
             c->archive_checksum[5] = -2000991154;
             c->archive_checksum[6] = -313801935;
             c->archive_checksum[7] = 1570981179;
@@ -421,6 +422,11 @@ void client_load(Client *c) {
     c->area_sidebar_offsets = _Pix3D.line_offset;
     pix3d_init3d(512, 334);
     c->area_viewport_offsets = _Pix3D.line_offset;
+#ifdef __PSP__
+    pix3d_init3d(256, 167);
+    c->area_viewport_low_offsets = _Pix3D.line_offset;
+    pix3d_init3d(512, 334);
+#endif
 
     int *distance = malloc(9 * sizeof(int));
     for (int x = 0; x < 9; x++) {
@@ -461,15 +467,21 @@ void client_load(Client *c) {
 #if defined(_arch_dreamcast) || defined(__NDS__)
     malloc_stats();
     if (!bump_allocator_init(1 << 20)) {
+#elif defined(__PSP__)
+    // Reserve headroom for PSP runtime, loaded client assets, and high-memory
+    // scene data. A full 32 MiB cache can starve those allocations on hardware.
+    if (!bump_allocator_init((_Client.lowmem ? 16 : 24) << 20)) {
 #else
     if (!(_Client.lowmem ? bump_allocator_init(16 << 20) : bump_allocator_init(32 << 20))) {
 #endif
         c->error_loading = true;
+        return;
     }
 
     // network init happens here after game loads instead of in platform_init because being connected disables fast-forward in emulators
     if (!clientstream_init()) {
         c->error_loading = true;
+        return;
     }
 
 // TODO make screen fit in nds res for logins
@@ -7737,6 +7749,10 @@ void client_prepare_game_screen(Client *c) {
     pix8_draw(c->image_mapback, 0, 0);
     c->area_sidebar = pixmap_new(190, 261);
     c->area_viewport = pixmap_new(512, 334);
+#ifdef __PSP__
+    c->area_viewport_low = pixmap_new(256, 167);
+    pixmap_bind(c->area_viewport);
+#endif
     pix2d_clear();
     c->area_backbase1 = pixmap_new(501, 61);
     c->area_backbase2 = pixmap_new(288, 40);
@@ -8893,6 +8909,22 @@ static void draw3DEntityElements(Client *c) {
     draw_info_overlay(c);
 }
 
+static void client_upscale_psp_viewport(Client *c) {
+#ifdef __PSP__
+    const int *src = c->area_viewport_low->pixels;
+    int *dst = c->area_viewport->pixels;
+    for (int y = 0; y < 334; y++) {
+        const int *src_row = src + (y >> 1) * 256;
+        int *dst_row = dst + y * 512;
+        for (int x = 0; x < 512; x++) {
+            dst_row[x] = src_row[x >> 1];
+        }
+    }
+#else
+    (void)c;
+#endif
+}
+
 void client_draw_scene(Client *c) {
     c->scene_cycle++;
     pushPlayers(c);
@@ -8987,7 +9019,24 @@ void client_draw_scene(Client *c) {
     _Model.picked_count = 0;
     _Model.mouse_x = c->shell->mouse_x - 8;
     _Model.mouse_y = c->shell->mouse_y - 11;
+#ifdef __PSP__
+    bool halfResolution = _Custom.render_scale == 2 && c->area_viewport_low != NULL;
+    if (halfResolution) {
+        pixmap_bind(c->area_viewport_low);
+        _Pix3D.line_offset = c->area_viewport_low_offsets;
+        _Pix3D.center_x = 128;
+        _Pix3D.center_y = 83;
+        _Pix3D.projection_shift = 8;
+        _Model.mouse_x >>= 1;
+        _Model.mouse_y >>= 1;
+    }
+#endif
     pix2d_clear();
+#ifdef __PSP__
+    if (halfResolution && _Custom.render_gu) {
+        pspgu_renderer_begin(c->area_viewport_low->pixels, 256, 167);
+    }
+#endif
 
     gl_start_drawscene();
 
@@ -8995,8 +9044,21 @@ void client_draw_scene(Client *c) {
     char buf[MAX_STR];
     uint64_t last = rs2_now();
     world3d_draw(c->scene, c->cameraX, c->cameraY, c->cameraZ, level, c->cameraYaw, c->cameraPitch, _Client.loop_cycle);
+#ifdef __PSP__
+    if (halfResolution) {
+        pspgu_renderer_end();
+        client_upscale_psp_viewport(c);
+        pixmap_bind(c->area_viewport);
+        _Pix3D.line_offset = c->area_viewport_offsets;
+        _Pix3D.center_x = 256;
+        _Pix3D.center_y = 167;
+        _Pix3D.projection_shift = 9;
+        _Model.mouse_x = c->shell->mouse_x - 8;
+        _Model.mouse_y = c->shell->mouse_y - 11;
+    }
+#endif
     if (_Custom.show_performance) {
-        sprintf(buf, "World3D: %lu ms", rs2_now() - last);
+        sprintf(buf, "World3D: %llu ms", (unsigned long long)(rs2_now() - last));
         drawStringRight(c->font_plain11, 507, 200, buf, YELLOW, true);
     }
 
@@ -9011,7 +9073,7 @@ void client_draw_scene(Client *c) {
     static uint64_t pixmap_now;
     static uint64_t pixmap_last;
     if (_Custom.show_performance) {
-        sprintf(buf, "Viewport pixmap: %lu ms", pixmap_now - pixmap_last);
+        sprintf(buf, "Viewport pixmap: %llu ms", (unsigned long long)(pixmap_now - pixmap_last));
 #ifdef GL11
         extern bool use_opengl11; // use global use_opengl11 as gl_end_drawscene force disables it
         if (use_opengl11) {
@@ -10593,6 +10655,10 @@ void client_free(Client *c) {
         pixmap_free(c->area_mapback);
         pixmap_free(c->area_sidebar);
         pixmap_free(c->area_viewport);
+#ifdef __PSP__
+        pixmap_free(c->area_viewport_low);
+        c->area_viewport_low = NULL;
+#endif
         pixmap_free(c->area_backbase1);
         pixmap_free(c->area_backbase2);
         pixmap_free(c->area_backhmid1);
@@ -10743,6 +10809,9 @@ void client_free(Client *c) {
     free(c->area_chatback_offsets);
     free(c->area_sidebar_offsets);
     free(c->area_viewport_offsets);
+#ifdef __PSP__
+    free(c->area_viewport_low_offsets);
+#endif
 
     free(c);
 }
@@ -10974,6 +11043,9 @@ void client_load_title(Client *c) {
         pixmap_free(c->area_mapback);
         pixmap_free(c->area_sidebar);
         pixmap_free(c->area_viewport);
+#ifdef __PSP__
+        pixmap_free(c->area_viewport_low);
+#endif
         pixmap_free(c->area_backbase1);
         pixmap_free(c->area_backbase2);
         pixmap_free(c->area_backhmid1);
@@ -10981,6 +11053,9 @@ void client_load_title(Client *c) {
         c->area_mapback = NULL;
         c->area_sidebar = NULL;
         c->area_viewport = NULL;
+#ifdef __PSP__
+        c->area_viewport_low = NULL;
+#endif
         c->area_backbase1 = NULL;
         c->area_backbase2 = NULL;
         c->area_backhmid1 = NULL;

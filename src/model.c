@@ -951,8 +951,8 @@ void model_draw_simple(Model *m, int pitch, int yaw, int roll, int eyePitch, int
         z = (y * sinEyePitch + z * cosEyePitch) >> 16;
 
         _Model.vertex_screen_z[v] = z - midZ;
-        _Model.vertex_screen_x[v] = centerX + (x << 9) / z;
-        _Model.vertex_screen_y[v] = centerY + (temp << 9) / z;
+        _Model.vertex_screen_x[v] = centerX + (x << _Pix3D.projection_shift) / z;
+        _Model.vertex_screen_y[v] = centerY + (temp << _Pix3D.projection_shift) / z;
 
         if (m->textured_face_count > 0) {
             _Model.vertex_view_space_x[v] = x;
@@ -976,22 +976,22 @@ void model_draw(Model *m, int yaw, int sinCameraPitch, int cosCameraPitch, int s
         return;
     }
     int e = (sceneZ * sinCameraYaw + sceneX * cosCameraYaw) >> 16;
-    int minScreenX = (e - m->radius) << 9;
+    int minScreenX = (e - m->radius) << _Pix3D.projection_shift;
     if (minScreenX / d >= _Pix2D.center_x) {
         return;
     }
-    int maxScreenX = (e + m->radius) << 9;
+    int maxScreenX = (e + m->radius) << _Pix3D.projection_shift;
     if (maxScreenX / d <= -_Pix2D.center_x) {
         return;
     }
     int f = (sceneY * cosCameraPitch - a * sinCameraPitch) >> 16;
     int g = m->radius * sinCameraPitch >> 16;
-    int maxScreenY = (f + g) << 9;
+    int maxScreenY = (f + g) << _Pix3D.projection_shift;
     if (maxScreenY / d <= -_Pix2D.center_y) {
         return;
     }
     int h = g + (m->max_y * cosCameraPitch >> 16);
-    int minScreenY = (f - h) << 9;
+    int minScreenY = (f - h) << _Pix3D.projection_shift;
     if (minScreenY / d >= _Pix2D.center_y) {
         return;
     }
@@ -1062,8 +1062,8 @@ void model_draw(Model *m, int yaw, int sinCameraPitch, int cosCameraPitch, int s
 
         _Model.vertex_screen_z[v] = z - b;
         if (z >= 50) {
-            _Model.vertex_screen_x[v] = cx + (x << 9) / z;
-            _Model.vertex_screen_y[v] = cy + (temp << 9) / z;
+            _Model.vertex_screen_x[v] = cx + (x << _Pix3D.projection_shift) / z;
+            _Model.vertex_screen_y[v] = cy + (temp << _Pix3D.projection_shift) / z;
         } else {
             _Model.vertex_screen_x[v] = -5000;
             project = true;
@@ -1331,15 +1331,15 @@ void model_draw_near_clipped_face(Model *m, int index) {
         xC = m->face_color_a[index];
         if (zC >= 50) {
             yA = (50 - zA) * _Pix3D.reciprical16[zC - zA];
-            _Model.clipped_x[0] = centerX + ((xA + ((_Model.vertex_screen_x[c] - xA) * yA >> 16)) << 9) / 50;
-            _Model.clipped_y[0] = centerY + ((xB + ((_Model.vertex_screen_y[c] - xB) * yA >> 16)) << 9) / 50;
+            _Model.clipped_x[0] = centerX + ((xA + ((_Model.vertex_screen_x[c] - xA) * yA >> 16)) << _Pix3D.projection_shift) / 50;
+            _Model.clipped_y[0] = centerY + ((xB + ((_Model.vertex_screen_y[c] - xB) * yA >> 16)) << _Pix3D.projection_shift) / 50;
             n++;
             _Model.clipped_color[0] = xC + ((m->face_color_c[index] - xC) * yA >> 16);
         }
         if (zB >= 50) {
             yA = (50 - zA) * _Pix3D.reciprical16[zB - zA];
-            _Model.clipped_x[n] = centerX + ((xA + ((_Model.vertex_screen_x[b] - xA) * yA >> 16)) << 9) / 50;
-            _Model.clipped_y[n] = centerY + ((xB + ((_Model.vertex_screen_y[b] - xB) * yA >> 16)) << 9) / 50;
+            _Model.clipped_x[n] = centerX + ((xA + ((_Model.vertex_screen_x[b] - xA) * yA >> 16)) << _Pix3D.projection_shift) / 50;
+            _Model.clipped_y[n] = centerY + ((xB + ((_Model.vertex_screen_y[b] - xB) * yA >> 16)) << _Pix3D.projection_shift) / 50;
             _Model.clipped_color[n++] = xC + ((m->face_color_b[index] - xC) * yA >> 16);
         }
     }
@@ -1353,14 +1353,14 @@ void model_draw_near_clipped_face(Model *m, int index) {
         xC = m->face_color_b[index];
         if (zA >= 50) {
             yA = (50 - zB) * _Pix3D.reciprical16[zA - zB];
-            _Model.clipped_x[n] = centerX + ((xA + ((_Model.vertex_screen_x[a] - xA) * yA >> 16)) << 9) / 50;
-            _Model.clipped_y[n] = centerY + ((xB + ((_Model.vertex_screen_y[a] - xB) * yA >> 16)) << 9) / 50;
+            _Model.clipped_x[n] = centerX + ((xA + ((_Model.vertex_screen_x[a] - xA) * yA >> 16)) << _Pix3D.projection_shift) / 50;
+            _Model.clipped_y[n] = centerY + ((xB + ((_Model.vertex_screen_y[a] - xB) * yA >> 16)) << _Pix3D.projection_shift) / 50;
             _Model.clipped_color[n++] = xC + ((m->face_color_a[index] - xC) * yA >> 16);
         }
         if (zC >= 50) {
             yA = (50 - zB) * _Pix3D.reciprical16[zC - zB];
-            _Model.clipped_x[n] = centerX + ((xA + ((_Model.vertex_screen_x[c] - xA) * yA >> 16)) << 9) / 50;
-            _Model.clipped_y[n] = centerY + ((xB + ((_Model.vertex_screen_y[c] - xB) * yA >> 16)) << 9) / 50;
+            _Model.clipped_x[n] = centerX + ((xA + ((_Model.vertex_screen_x[c] - xA) * yA >> 16)) << _Pix3D.projection_shift) / 50;
+            _Model.clipped_y[n] = centerY + ((xB + ((_Model.vertex_screen_y[c] - xB) * yA >> 16)) << _Pix3D.projection_shift) / 50;
             _Model.clipped_color[n++] = xC + ((m->face_color_c[index] - xC) * yA >> 16);
         }
     }
@@ -1374,14 +1374,14 @@ void model_draw_near_clipped_face(Model *m, int index) {
         xC = m->face_color_c[index];
         if (zB >= 50) {
             yA = (50 - zC) * _Pix3D.reciprical16[zB - zC];
-            _Model.clipped_x[n] = centerX + ((xA + ((_Model.vertex_screen_x[b] - xA) * yA >> 16)) << 9) / 50;
-            _Model.clipped_y[n] = centerY + ((xB + ((_Model.vertex_screen_y[b] - xB) * yA >> 16)) << 9) / 50;
+            _Model.clipped_x[n] = centerX + ((xA + ((_Model.vertex_screen_x[b] - xA) * yA >> 16)) << _Pix3D.projection_shift) / 50;
+            _Model.clipped_y[n] = centerY + ((xB + ((_Model.vertex_screen_y[b] - xB) * yA >> 16)) << _Pix3D.projection_shift) / 50;
             _Model.clipped_color[n++] = xC + ((m->face_color_b[index] - xC) * yA >> 16);
         }
         if (zA >= 50) {
             yA = (50 - zC) * _Pix3D.reciprical16[zA - zC];
-            _Model.clipped_x[n] = centerX + ((xA + ((_Model.vertex_screen_x[a] - xA) * yA >> 16)) << 9) / 50;
-            _Model.clipped_y[n] = centerY + ((xB + ((_Model.vertex_screen_y[a] - xB) * yA >> 16)) << 9) / 50;
+            _Model.clipped_x[n] = centerX + ((xA + ((_Model.vertex_screen_x[a] - xA) * yA >> 16)) << _Pix3D.projection_shift) / 50;
+            _Model.clipped_y[n] = centerY + ((xB + ((_Model.vertex_screen_y[a] - xB) * yA >> 16)) << _Pix3D.projection_shift) / 50;
             _Model.clipped_color[n++] = xC + ((m->face_color_a[index] - xC) * yA >> 16);
         }
     }

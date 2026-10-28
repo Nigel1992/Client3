@@ -8,6 +8,7 @@
 #include "pix8.h"
 #include "platform.h"
 #include "gl11.h"
+#include "platform/pspgu_renderer.h"
 
 Pix3D _Pix3D = {.lowMemory = true, .jagged = true};
 extern Pix2D _Pix2D;
@@ -19,6 +20,7 @@ void pix3d_init_global(void) {
     _Pix3D.cos_table = malloc(2048 * sizeof(int));
     _Pix3D.renderWidth = 512;
     _Pix3D.renderHeight = 334;
+    _Pix3D.projection_shift = 9;
 
     for (int i = 1; i < 512; i++) {
         _Pix3D.reciprical15[i] = 32768 / i;
@@ -458,6 +460,11 @@ static void gouraudRaster(int x0, int x1, int color0, int color1, int *dst, int 
 }
 
 void gouraudTriangle(int xA, int xB, int xC, int yA, int yB, int yC, int colorA, int colorB, int colorC) {
+#ifdef __PSP__
+    if (_Pix3D.projection_shift == 8 && pspgu_renderer_gouraud(xA, yA, xB, yB, xC, yC, colorA, colorB, colorC, _Pix3D.alpha)) {
+        return;
+    }
+#endif
     int dxAB = xB - xA;
     int dyAB = yB - yA;
     int dxAC = xC - xA;
@@ -954,6 +961,11 @@ static void flatRaster(int x0, int x1, int *dst, int offset, int rgb) {
 }
 
 void flatTriangle(int xA, int xB, int xC, int yA, int yB, int yC, int color) {
+#ifdef __PSP__
+    if (_Pix3D.projection_shift == 8 && pspgu_renderer_flat(xA, yA, xB, yB, xC, yC, color, _Pix3D.alpha)) {
+        return;
+    }
+#endif
     int dxAB = xB - xA;
     int dyAB = yB - yA;
     int dxAC = xC - xA;
@@ -1745,6 +1757,9 @@ static void textureRaster(int xA, int xB, int *dst, int offset, int *texels, int
 }
 
 void textureTriangle(int xA, int xB, int xC, int yA, int yB, int yC, int shadeA, int shadeB, int shadeC, int originX, int originY, int originZ, int txB, int txC, int tyB, int tyC, int tzB, int tzC, int texture) {
+#ifdef __PSP__
+    pspgu_renderer_fallback();
+#endif
     int *texels = pix3d_get_texels(texture);
     _Pix3D.opaque = !_Pix3D.textureHasTransparency[texture];
 

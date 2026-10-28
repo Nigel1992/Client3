@@ -73,6 +73,8 @@ struct Client {
     PixMap *area_mapback;
     PixMap *area_sidebar;
     PixMap *area_viewport;
+    PixMap *area_viewport_low;
+    int *area_viewport_low_offsets;
     PixMap *area_backbase1;
     PixMap *area_backbase2;
     PixMap *area_backhmid1;

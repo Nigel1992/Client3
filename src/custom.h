@@ -15,6 +15,9 @@ typedef struct {
     bool allow_commands;
     bool allow_debugprocs;
     int http_port;
+    int render_distance; // scene traversal radius in tiles (8-25)
+    int render_scale; // PSP scene resolution scale: 1=full, 2=half
+    bool render_gu; // use PSP GU for the untextured scene triangles
     int chat_era; // 0 - early beta, 1 - late beta, 2 - launch
     bool resizable;
     bool item_outlines;

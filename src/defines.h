@@ -66,7 +66,7 @@ typedef double DOUBLE;
 #define RADIANS_TO_RS D(325.949)
 #define RADIANS_TO_RS_IMPRECISE D(326.11)
 
-#if defined(_arch_dreamcast) || defined(__NDS__)
+#if defined(_arch_dreamcast) || defined(__NDS__) || defined(__PSP__)
 // NOTE: more extreme lowmem mode, making the game mostly explorable on 32 MB
 // -2 MB RAM, may cause some models to be invisible
 #define MODEL_MAX_DEPTH 600

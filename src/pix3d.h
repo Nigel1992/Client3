@@ -35,6 +35,7 @@ typedef struct {
 
     int renderWidth;
     int renderHeight;
+    int projection_shift;
 } Pix3D;
 
 void pix3d_init_global(void);

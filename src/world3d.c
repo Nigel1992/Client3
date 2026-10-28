@@ -18,12 +18,10 @@
 #include "gl11.h"
 
 SceneData _World3D = {.lowMemory = true};
+extern Custom _Custom;
 extern Pix2D _Pix2D;
 extern Pix3D _Pix3D;
 extern TileOverlayData _TileOverlay;
-#ifdef GL11
-extern Custom _Custom;
-#endif
 
 const int WALL_DECORATION_INSET_X[] = {53, -53, -53, 53};
 const int WALL_DECORATION_INSET_Z[] = {-53, -53, 53, 53};
@@ -1062,6 +1060,12 @@ void world3d_draw_minimaptile(World3D *world3d, int level, int x, int z, int *ds
 }
 
 void world3d_click(int mouseX, int mouseY) {
+#ifdef __PSP__
+    if (_Custom.render_scale == 2) {
+        mouseX >>= 1;
+        mouseY >>= 1;
+    }
+#endif
     _World3D.takingInput = true;
     _World3D.mouseX = mouseX;
     _World3D.mouseY = mouseY;
@@ -1096,22 +1100,29 @@ void world3d_draw(World3D *world3d, int eyeX, int eyeY, int eyeZ, int topLevel, 
     _World3D.eyeTileZ = eyeZ / 128;
     _World3D.topLevel = topLevel;
 
-    _World3D.minDrawTileX = _World3D.eyeTileX - 25;
+    int drawRadius = _Custom.render_distance;
+    if (drawRadius < 8) {
+        drawRadius = 8;
+    } else if (drawRadius > 25) {
+        drawRadius = 25;
+    }
+
+    _World3D.minDrawTileX = _World3D.eyeTileX - drawRadius;
     if (_World3D.minDrawTileX < 0) {
         _World3D.minDrawTileX = 0;
     }
 
-    _World3D.minDrawTileZ = _World3D.eyeTileZ - 25;
+    _World3D.minDrawTileZ = _World3D.eyeTileZ - drawRadius;
     if (_World3D.minDrawTileZ < 0) {
         _World3D.minDrawTileZ = 0;
     }
 
-    _World3D.maxDrawTileX = _World3D.eyeTileX + 25;
+    _World3D.maxDrawTileX = _World3D.eyeTileX + drawRadius;
     if (_World3D.maxDrawTileX > world3d->maxTileX) {
         _World3D.maxDrawTileX = world3d->maxTileX;
     }
 
-    _World3D.maxDrawTileZ = _World3D.eyeTileZ + 25;
+    _World3D.maxDrawTileZ = _World3D.eyeTileZ + drawRadius;
     if (_World3D.maxDrawTileZ > world3d->maxTileZ) {
         _World3D.maxDrawTileZ = world3d->maxTileZ;
     }
@@ -1909,14 +1920,14 @@ void world3d_draw_tileunderlay(World3D *world3d, TileUnderlay *underlay, int lev
         return;
     }
 
-    int px0 = _Pix3D.center_x + (x0 << 9) / z0;
-    int py0 = _Pix3D.center_y + (y0 << 9) / z0;
-    int pz0 = _Pix3D.center_x + (x1 << 9) / z1;
-    int px1 = _Pix3D.center_y + (y1 << 9) / z1;
-    int py1 = _Pix3D.center_x + (x2 << 9) / z2;
-    int pz1 = _Pix3D.center_y + (y2 << 9) / z2;
-    int px3 = _Pix3D.center_x + (x3 << 9) / z3;
-    int py3 = _Pix3D.center_y + (y3 << 9) / z3;
+    int px0 = _Pix3D.center_x + (x0 << _Pix3D.projection_shift) / z0;
+    int py0 = _Pix3D.center_y + (y0 << _Pix3D.projection_shift) / z0;
+    int pz0 = _Pix3D.center_x + (x1 << _Pix3D.projection_shift) / z1;
+    int px1 = _Pix3D.center_y + (y1 << _Pix3D.projection_shift) / z1;
+    int py1 = _Pix3D.center_x + (x2 << _Pix3D.projection_shift) / z2;
+    int pz1 = _Pix3D.center_y + (y2 << _Pix3D.projection_shift) / z2;
+    int px3 = _Pix3D.center_x + (x3 << _Pix3D.projection_shift) / z3;
+    int py3 = _Pix3D.center_y + (y3 << _Pix3D.projection_shift) / z3;
 
     _Pix3D.alpha = 0;
 
@@ -1994,8 +2005,8 @@ void world3d_draw_tileoverlay(int tileX, int tileZ, TileOverlay *overlay, int si
             _TileOverlay.tmpViewspaceY[i] = y;
             _TileOverlay.tmpViewspaceZ[i] = z;
         }
-        _TileOverlay.tmpScreenX[i] = _Pix3D.center_x + (x << 9) / z;
-        _TileOverlay.tmpScreenY[i] = _Pix3D.center_y + (y << 9) / z;
+        _TileOverlay.tmpScreenX[i] = _Pix3D.center_x + (x << _Pix3D.projection_shift) / z;
+        _TileOverlay.tmpScreenY[i] = _Pix3D.center_y + (y << _Pix3D.projection_shift) / z;
 
 #ifdef GL11
         if (_Custom.use_opengl11) {

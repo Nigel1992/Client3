@@ -14,10 +14,12 @@
 extern ClientData _Client;
 extern InputTracking _InputTracking;
 
-#if defined(__WII__) || defined(__3DS__) || defined(__WIIU__) || defined(__SWITCH__) || defined(__PSP__) || defined(__vita__) || defined(_arch_dreamcast) || defined(NXDK) || defined(__NDS__) || defined(ANDROID)
-Custom _Custom = {.chat_era = 2, .http_port = 80, .show_performance = true};
+#if defined(__PSP__)
+Custom _Custom = {.chat_era = 2, .http_port = 80, .render_distance = 16, .render_scale = 2, .render_gu = true, .show_performance = true};
+#elif defined(__WII__) || defined(__3DS__) || defined(__WIIU__) || defined(__SWITCH__) || defined(__vita__) || defined(_arch_dreamcast) || defined(NXDK) || defined(__NDS__) || defined(ANDROID)
+Custom _Custom = {.chat_era = 2, .http_port = 80, .render_distance = 25, .render_scale = 1, .render_gu = false, .show_performance = true};
 #else
-Custom _Custom = {.chat_era = 2, .http_port = 80};
+Custom _Custom = {.chat_era = 2, .http_port = 80, .render_distance = 25, .render_scale = 1, .render_gu = false};
 #endif
 
 // NOTE: having this file separate from client easily creates conflicts if other non-client entrypoints compile all c files
@@ -70,7 +72,12 @@ bool load_ini_args(void) {
     // world nodeid 1 = 10 (default)
     INI_INT_LOG(&(&_Client), nodeid, _Client.nodeid = 10 + _Client.nodeid - 1);
     INI_INT_LOG(&(&_Client), portoff, );
-#if defined(__PSP__) || defined(_arch_dreamcast) || defined(__NDS__) || defined(NXDK)
+#if defined(__PSP__)
+    // Keep PSP conservative by default, but let PSP-2000+ users opt into the
+    // regular 32 MiB scene allocator through config.ini.
+    _Client.lowmem = true;
+    INI_INT_LOG(&(&_Client), lowmem, );
+#elif defined(_arch_dreamcast) || defined(__NDS__) || defined(NXDK)
     _Client.lowmem = true;
     rs2_log("  lowmem: %d (option overwritten due to limited memory)", _Client.lowmem);
 #else
@@ -115,6 +122,12 @@ void load_ini_config(Client *c) {
 #endif
     INI_INT_LOG(&(&_Custom), item_outlines, );
     INI_INT_LOG(&(&_Custom), show_performance, );
+    INI_INT_LOG(&(&_Custom), render_distance,
+                if (_Custom.render_distance < 8) _Custom.render_distance = 8;
+                if (_Custom.render_distance > 25) _Custom.render_distance = 25);
+    INI_INT_LOG(&(&_Custom), render_scale,
+                if (_Custom.render_scale != 2) _Custom.render_scale = 1);
+    INI_INT_LOG(&(&_Custom), render_gu, );
 #ifdef GL11
     _Custom.use_opengl11 = true;
 #endif
